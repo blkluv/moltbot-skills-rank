@@ -4,61 +4,58 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 
 def scrape_moltbot_skills():
-    print("Launching Global Link Extractor...")
+    print("Launching Persistent Harvester (Anti-Virtual-Scroll Mode)...")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        
-        # Using a real User-Agent to prevent being treated as a bot
-        page.set_extra_http_headers({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        # We use a large viewport to see more items at once
+        context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+        page = context.new_page()
         
         print("Navigating to ClawdHub...")
         page.goto("https://clawdhub.com/skills", wait_until="networkidle")
-        page.wait_for_timeout(10000) # Give it 10 seconds to fully load EVERYTHING
+        page.wait_for_timeout(5000)
 
-        all_skills = {}
-
-        for i in range(20):
-            print(f"Extraction Round {i+1}/20... (Skills found: {len(all_skills)})")
-            
-            # This script grabs EVERY link on the page, even inside complex structures
-            found_links = page.evaluate("""() => {
+        all_skills_dict = {}
+        
+        # We will perform many small scrolls to catch items before they are unmounted
+        # On infinite scroll sites, small increments are more reliable
+        for i in range(50): 
+            # 1. Capture everything currently in the 'Window'
+            # We use evaluate to get the raw data directly from the DOM
+            current_view_items = page.evaluate("""() => {
                 const results = [];
-                // Query ALL anchor tags on the page
-                const allAnchors = Array.from(document.querySelectorAll('a'));
+                const links = Array.from(document.querySelectorAll('a[href*="github.com/"]'));
                 
-                allAnchors.forEach(a => {
-                    const href = a.href || "";
-                    if (href.includes('github.com/')) {
-                        // Find the text near this link to use as a name
-                        let textContent = a.innerText.trim();
-                        let containerText = a.closest('div')?.innerText || "";
-                        
-                        results.push({
-                            url: href,
-                            rawText: containerText.split('\\n').slice(0, 3).join(' ') 
-                        });
+                links.forEach(link => {
+                    // Navigate up to find the card container
+                    const card = link.closest('div');
+                    if (card) {
+                        const title = card.querySelector('h1, h2, h3, h4, h5, strong')?.innerText || "Unknown";
+                        const desc = card.querySelector('p')?.innerText || "";
+                        results.append({ url: link.href, name: title.trim(), desc: desc.trim() });
                     }
                 });
                 return results;
             }""")
 
-            for item in found_links:
-                if item['url'] not in all_skills:
-                    # Clean up the name: take the first part of the text we found
-                    clean_name = item['rawText'].split('⭐')[0].split('View')[0].strip()
-                    if len(clean_name) > 2:
-                        all_skills[item['url']] = {
-                            "name": clean_name[:50], # Limit name length
-                            "desc": "Moltbot Skill Tool",
-                            "url": item['url'],
-                            "stars": 0
-                        }
+            # 2. Add to our persistent dictionary (GitHub URL is the unique ID)
+            for item in current_view_items:
+                if item['url'] not in all_skills_dict and len(item['name']) > 2:
+                    all_skills_dict[item['url']] = {
+                        "name": item['name'],
+                        "desc": item['desc'],
+                        "url": item['url'],
+                        "stars": 0
+                    }
 
-            page.mouse.wheel(0, 1500)
-            page.wait_for_timeout(2000)
+            # 3. Small scroll to trigger the next 'batch' of the virtual list
+            page.mouse.wheel(0, 400) 
+            page.wait_for_timeout(800) # Quick pause for data fetch
+            
+            if i % 10 == 0:
+                print(f"Progress: Captured {len(all_skills_dict)} total skills so far...")
 
-        final_list = list(all_skills.values())
+        final_list = list(all_skills_dict.values())
         
         output_data = {
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
@@ -68,7 +65,7 @@ def scrape_moltbot_skills():
         with open('skills.json', 'w', encoding='utf-8') as f:
             json.dump(output_data, f, ensure_ascii=False, indent=2)
             
-        print(f"DONE! Found {len(final_list)} unique skills.")
+        print(f"FINISHED! Saved {len(final_list)} unique skills to skills.json.")
         browser.close()
 
 if __name__ == "__main__":
