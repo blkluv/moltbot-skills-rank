@@ -1,4 +1,11 @@
 {
-  "last_updated": "2026-01-28 16:58:46 UTC",
-  "skills": []
+  "last_updated": "2026-01-28 17:05:29 UTC",
+  "skills": [
+    {
+      "name": "MoltHub · A Moltbot project · Open source (MIT) · ",
+      "desc": "Moltbot Skill Tool",
+      "url": "https://github.com/moltbot/molthub",
+      "stars": 0
+    }
+  ]
 }
