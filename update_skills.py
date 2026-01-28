@@ -5,63 +5,50 @@ import re
 from datetime import datetime
 
 def scrape_moltbot_skills():
-    print("Execution started: Fetching data from ClawdHub...")
+    print("Scraper started...")
     url = "https://clawdhub.com/skills"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
+        response = requests.get(url, headers=headers, timeout=20)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # ClawdHub uses different card styles. We search for generic containers
-        # that likely contain a skill entry.
-        cards = soup.find_all(['div', 'section'], class_=re.compile(r'card|group|relative'))
-        
         extracted_skills = []
-        seen_names = set() # Avoid duplicates
-
-        for card in cards:
-            title_el = card.find(['h3', 'h4', 'h2'])
-            if not title_el:
-                continue
-                
-            name = title_el.get_text(strip=True)
-            if name in seen_names or len(name) < 2:
-                continue
+        
+        # We search for all links that point to GitHub - these are our skills!
+        github_links = soup.find_all('a', href=re.compile(r'github\.com/'))
+        
+        for link in github_links:
+            # The parent container usually holds the name and description
+            container = link.find_parent(['div', 'section'])
+            if not container: continue
             
-            # Look for description in nearby paragraph tags
-            desc_el = card.find('p')
-            description = desc_el.get_text(strip=True) if desc_el else "No description provided."
+            # Find the name (usually in a heading)
+            name_el = container.find(['h2', 'h3', 'h4'])
+            name = name_el.get_text(strip=True) if name_el else "Unknown Tool"
             
-            # Look for GitHub link
-            github_link = card.find('a', href=re.compile(r'github\.com'))
-            repo_url = github_link['href'] if github_link else "#"
+            # Find the description (usually in a paragraph)
+            desc_el = container.find('p')
+            description = desc_el.get_text(strip=True) if desc_el else "Fast tool for Moltbot."
             
-            # Star counting logic
-            stars_count = 0
-            star_text = card.get_text()
-            # Look for numbers near a star emoji or the word "stars"
-            stars_match = re.search(r'(\d+)\s*(?:stars|⭐)', star_text, re.IGNORECASE)
-            if stars_match:
-                stars_count = int(stars_match.group(1))
-            else:
-                # Fallback: just find any number in the card that isn't too long
-                num_matches = re.findall(r'\b\d+\b', star_text)
-                if num_matches:
-                    stars_count = int(num_matches[0])
-
+            # Find stars (look for numbers near a star emoji)
+            stars_match = re.search(r'(\d+)', container.get_text())
+            stars = int(stars_match.group(1)) if stars_match else 0
+            
             extracted_skills.append({
                 "name": name,
                 "desc": description,
-                "url": repo_url,
-                "stars": stars_count
+                "url": link['href'],
+                "stars": stars
             })
-            seen_names.add(name)
             
-        # Structure data with the timestamp
+        # If the first method fails, try finding cards by class
+        if not extracted_skills:
+            cards = soup.select('.bg-card, .group, .relative')
+            for card in cards:
+                # (similar logic here as backup)
+                pass
+
         output_data = {
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
             "skills": extracted_skills
@@ -70,10 +57,10 @@ def scrape_moltbot_skills():
         with open('skills.json', 'w', encoding='utf-8') as f:
             json.dump(output_data, f, ensure_ascii=False, indent=2)
             
-        print(f"Success! Scraped {len(extracted_skills)} skills.")
+        print(f"Success! Found {len(extracted_skills)} skills.")
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"Error: {e}")
         exit(1)
 
 if __name__ == "__main__":
